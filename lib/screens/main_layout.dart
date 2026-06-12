@@ -66,34 +66,16 @@ class _MainLayoutState extends ConsumerState<MainLayout> {
                         ),
                       ),
                     ),
-                    Row(
-                      children: [
-                        Text(
-                          'Priority Mode',
-                          style: TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.bold,
-                            color: isHighPriority ? Colors.red.shade900 : Colors.grey.shade700,
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        SizedBox(
-                          height: 30, // Make the switch slightly smaller
-                          child: FittedBox(
-                            fit: BoxFit.fill,
-                            child: Switch(
-                              value: isHighPriority,
-                              onChanged: (val) {
-                                ref.read(highPriorityModeProvider.notifier).toggle(val);
-                              },
-                              activeColor: Colors.white,
-                              activeTrackColor: Colors.red,
-                              inactiveTrackColor: Colors.grey.shade300,
-                              inactiveThumbColor: Colors.white,
-                            ),
-                          ),
-                        ),
-                      ],
+                    // Read-only auto-managed status badge (not user controllable)
+                    AnimatedSwitcher(
+                      duration: const Duration(milliseconds: 400),
+                      transitionBuilder: (child, animation) => ScaleTransition(
+                        scale: animation,
+                        child: FadeTransition(opacity: animation, child: child),
+                      ),
+                      child: isHighPriority
+                          ? _PriorityBadge(key: const ValueKey('high'))
+                          : _NormalBadge(key: const ValueKey('normal')),
                     ),
                   ],
                 ),
@@ -157,6 +139,115 @@ class _MainLayoutState extends ConsumerState<MainLayout> {
             ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Read-only status badge — shown when a priority rank 1 or 2 task is active.
+// Pulses red with a siren icon. Volunteer cannot interact with it.
+// ---------------------------------------------------------------------------
+class _PriorityBadge extends StatefulWidget {
+  const _PriorityBadge({Key? key}) : super(key: key);
+
+  @override
+  State<_PriorityBadge> createState() => _PriorityBadgeState();
+}
+
+class _PriorityBadgeState extends State<_PriorityBadge>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _pulse;
+  late final Animation<double> _scale;
+
+  @override
+  void initState() {
+    super.initState();
+    _pulse = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 800),
+    )..repeat(reverse: true);
+    _scale = Tween<double>(begin: 1.0, end: 1.08).animate(
+      CurvedAnimation(parent: _pulse, curve: Curves.easeInOut),
+    );
+  }
+
+  @override
+  void dispose() {
+    _pulse.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return ScaleTransition(
+      scale: _scale,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+        decoration: BoxDecoration(
+          color: Colors.red.shade700,
+          borderRadius: BorderRadius.circular(20),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.red.withOpacity(0.45),
+              blurRadius: 10,
+              spreadRadius: 1,
+            ),
+          ],
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: const [
+            Icon(Icons.crisis_alert_rounded, color: Colors.white, size: 14),
+            SizedBox(width: 5),
+            Text(
+              'PRIORITY',
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 11,
+                fontWeight: FontWeight.w800,
+                letterSpacing: 1.2,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Read-only status badge — shown during normal (non-priority) mode.
+// Calm green pill. Volunteer cannot interact with it.
+// ---------------------------------------------------------------------------
+class _NormalBadge extends StatelessWidget {
+  const _NormalBadge({Key? key}) : super(key: key);
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      decoration: BoxDecoration(
+        color: const Color(0xFFE8F5E9),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: const Color(0xFF2E7D32).withOpacity(0.4)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: const [
+          Icon(Icons.check_circle_outline_rounded,
+              color: Color(0xFF2E7D32), size: 14),
+          SizedBox(width: 5),
+          Text(
+            'Normal',
+            style: TextStyle(
+              color: Color(0xFF2E7D32),
+              fontSize: 11,
+              fontWeight: FontWeight.w700,
+              letterSpacing: 0.5,
+            ),
+          ),
+        ],
       ),
     );
   }

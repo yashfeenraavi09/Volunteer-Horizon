@@ -1,7 +1,9 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:collection/collection.dart';
 import '../models/assignment_model.dart';
 import '../models/report_model.dart';
+import '../models/survey_model.dart';
 import '../models/volunteer_model.dart';
 import '../services/auth_service.dart';
 import '../services/database_service.dart';
@@ -10,34 +12,39 @@ import '../services/map_service.dart';
 class HighPriorityModeNotifier extends Notifier<bool> {
   @override
   bool build() {
-    // Listen for high-priority tasks in the pending list
+    // AUTO-ACTIVATE: Listen for high-priority pending assignments
     ref.listen(pendingAssignmentsProvider, (previous, next) {
-      final tasks = next.value;
-      if (tasks != null && tasks.isNotEmpty) {
-        // Priority Rank 1 or 2 is considered High/Critical
-        final hasCritical = tasks.any((t) => t.priorityRank <= 2);
-        if (hasCritical && !state) {
-          state = true;
+      final tasks = next.value ?? [];
+      // Priority Rank 1 or 2 is considered High/Critical
+      final hasCritical = tasks.any((t) => t.priorityRank <= 2);
+      if (hasCritical && !state) {
+        state = true; // auto ON
+      } else if (!hasCritical && state) {
+        // Only deactivate if the active mission is also not critical
+        final activeMission = ref.read(currentAssignmentProvider).value;
+        if (activeMission == null || activeMission.priorityRank > 2) {
+          state = false; // auto OFF
         }
       }
     });
 
-    // Listen for high-priority tasks in the active mission
+    // AUTO-ACTIVATE: Listen for active high-priority mission
     ref.listen(currentAssignmentProvider, (previous, next) {
       final assignment = next.value;
-      if (assignment != null) {
-        if (assignment.priorityRank <= 2 && !state) {
-          state = true;
-        }
+      if (assignment != null && assignment.priorityRank <= 2 && !state) {
+        state = true; // auto ON
+      } else if (assignment == null && state) {
+        // Mission ended — check if any pending task is still critical
+        final pending = ref.read(pendingAssignmentsProvider).value ?? [];
+        final hasCritical = pending.any((t) => t.priorityRank <= 2);
+        if (!hasCritical) state = false; // auto OFF
       }
     });
 
     return false;
   }
-
-  void toggle(bool value) {
-    state = value;
-  }
+  // NOTE: No toggle() method — priority mode is fully automatic.
+  // Volunteers cannot manually override this setting.
 }
 
 final highPriorityModeProvider = NotifierProvider<HighPriorityModeNotifier, bool>(() {
@@ -62,6 +69,29 @@ final volunteerProfileProvider = StreamProvider<Volunteer?>((ref) {
     error: (_, __) => Stream.value(null),
   );
 });
+
+
+/// Provides a single survey by its ID for the detail view
+final surveyByIdProvider = FutureProvider.autoDispose.family<Survey?, String>((ref, id) async {
+  final auth = ref.watch(authStateProvider).value;
+  if (auth == null) return null;
+  final db = ref.watch(databaseServiceProvider);
+  final rawList = await db.getVolunteerSurveys(auth.uid);
+  final map = rawList.firstWhereOrNull((m) => m['id'] == id,);
+  if (map == null) return null;
+  return Survey.fromMap(map, id);
+});
+
+/// Provides a list of surveys for the volunteer
+final volunteerSurveysProvider = StreamProvider.autoDispose<List<Survey>>((ref) {
+  final auth = ref.watch(authStateProvider).value;
+  if (auth == null) return const Stream.empty();
+  final db = ref.watch(databaseServiceProvider);
+  return db.streamVolunteerSurveys(auth.uid).map((rawList) =>
+      rawList.map((m) => Survey.fromMap(m, m['id'] as String)).toList());
+});
+
+
 
 /// Streams assignments that are 'pending' and assigned directly to this volunteer
 final pendingAssignmentsProvider = StreamProvider<List<Assignment>>((ref) {

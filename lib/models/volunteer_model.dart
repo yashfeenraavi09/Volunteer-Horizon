@@ -4,6 +4,8 @@ class Volunteer {
   final String id;
   final String name;
   final String skillType;
+  final List<String> skills;
+  final String skillLevel;
   final String availabilityStatus;
   final String assignedZone;
   final double currentLatitude;
@@ -17,6 +19,8 @@ class Volunteer {
     required this.id,
     required this.name,
     required this.skillType,
+    required this.skills,
+    required this.skillLevel,
     required this.availabilityStatus,
     required this.assignedZone,
     required this.currentLatitude,
@@ -33,6 +37,8 @@ class Volunteer {
       id: doc.id,
       name: data['name'] ?? '',
       skillType: data['skill_type'] ?? 'general',
+      skills: (data['skills'] as List<dynamic>?)?.cast<String>() ?? [],
+      skillLevel: data['skill_level'] ?? 'Beginner',
       availabilityStatus: data['availability_status'] ?? 'offline',
       assignedZone: data['assigned_zone'] ?? 'none',
       currentLatitude: (data['current_latitude'] ?? 0.0).toDouble(),
@@ -48,6 +54,8 @@ class Volunteer {
     return {
       'name': name,
       'skill_type': skillType,
+      'skills': skills,
+      'skill_level': skillLevel,
       'availability_status': availabilityStatus,
       'assigned_zone': assignedZone,
       'current_latitude': currentLatitude,

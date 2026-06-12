@@ -54,3 +54,10 @@ lib/firebase_options.dart
 .env
 .env.*
 web/config.js
+
+# Firebase CLI cache
+.firebase/
+
+# Scratch workspace
+scratch/
+

@@ -156,9 +156,11 @@ class _ReportScreenState extends ConsumerState<ReportScreen> {
         }
 
         // 2. PROCEED WITH SUBMISSION
+        // Debug: print selected category
+        debugPrint('Submitting report with category: \'${_disasterCategory}\'');
         await ref.read(databaseServiceProvider).submitReport(
           uid: user.uid,
-          category: _disasterCategory.toLowerCase(),
+          category: _disasterCategory,
           description: fullDescription,
           severity: _severity,
           lat: lat,

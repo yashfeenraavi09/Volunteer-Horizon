@@ -10,6 +10,7 @@ import 'screens/onboarding_screen.dart';
 import 'screens/main_layout.dart';
 import 'screens/login_screen.dart';
 import 'screens/organization_join_screen.dart';
+import 'screens/survey_history_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -28,6 +29,11 @@ final goRouterProvider = Provider<GoRouter>((ref) {
   return GoRouter(
     initialLocation: '/login',
     routes: [
+      GoRoute(
+        path: '/survey-history',
+        builder: (context, state) => const SurveyHistoryScreen(),
+      ),
+      // Existing routes
       GoRoute(
         path: '/login',
         builder: (context, state) => const LoginScreen(),

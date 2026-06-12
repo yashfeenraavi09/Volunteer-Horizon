@@ -1,11 +1,13 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'auth_service.dart';
 
 final databaseServiceProvider = Provider<DatabaseService>((ref) {
   return DatabaseService(FirebaseFirestore.instance);
 });
+
+
 
 class DatabaseService {
   final FirebaseFirestore _db;
@@ -19,6 +21,12 @@ class DatabaseService {
     required String phone,
     required String assignedZone,
     required String skillType,
+    List<String> skills = const [],
+    String skillLevel = 'Beginner',
+    List<String> availability = const [],
+    List<String> taskPreferences = const [],
+    double latitude = 0.0,
+    double longitude = 0.0,
   }) async {
     final batch = _db.batch();
 
@@ -26,11 +34,15 @@ class DatabaseService {
     final volunteerRef = _db.collection('volunteers').doc(uid);
     batch.set(volunteerRef, {
       'name': name,
-      'skill_type': skillType,
+      'skill_type': skillType,             // Primary skill (first selected)
+      'skills': skills,                    // All selected skills as a list
+      'skill_level': skillLevel,           // Beginner / Intermediate / Expert
+      'availability': availability,        // Selected availability windows
+      'task_preferences': taskPreferences, // Preferred task categories
       'availability_status': 'available',
       'assigned_zone': assignedZone,
-      'current_latitude': 0.0,
-      'current_longitude': 0.0,
+      'current_latitude': latitude,
+      'current_longitude': longitude,
       'contact': phone,
       'active_assignment_id': null,
       'utilization_status': 'ready',
@@ -41,7 +53,7 @@ class DatabaseService {
     final userRef = _db.collection('volunteer_users').doc(uid);
     batch.set(userRef, {
       'volunteer_id': uid,
-      'email': FirebaseAuth.instance.currentUser?.email ?? '', // Fixed: Now stores actual email
+      'email': FirebaseAuth.instance.currentUser?.email ?? '',
       'role': 'volunteer',
       'account_status': 'active',
       'created_at': FieldValue.serverTimestamp(),
@@ -97,7 +109,55 @@ class DatabaseService {
     }
   }
 
-  /// Submits a resident survey with Composite Key logic (Name + Contact)
+  /// Retrieves list of surveys submitted by the volunteer (one-time fetch)
+  Future<List<Map<String, dynamic>>> getVolunteerSurveys(String uid) async {
+    try {
+      final snapshot = await _db
+          .collection('surveys')
+          .where('submitted_by_volunteer_id', isEqualTo: uid)
+          .get();
+      
+      final docs = snapshot.docs.map((doc) => {'id': doc.id, ...doc.data()}).toList();
+      
+      // Sort in-memory to avoid FAILED_PRECONDITION (missing index) error
+      docs.sort((a, b) {
+        final t1 = a['created_at'] as Timestamp?;
+        final t2 = b['created_at'] as Timestamp?;
+        if (t1 == null || t2 == null) return 0;
+        return t2.compareTo(t1); // Sort Descending (Newest first)
+      });
+      
+      return docs;
+    } catch (e) {
+      rethrow;
+    }
+  }
+
+  /// Streams surveys submitted by the volunteer for real‑time updates
+  Stream<List<Map<String, dynamic>>> streamVolunteerSurveys(String uid) {
+    try {
+      return _db
+          .collection('surveys')
+          .where('submitted_by_volunteer_id', isEqualTo: uid)
+          .snapshots()
+          .map((snapshot) {
+        final docs = snapshot.docs.map((doc) => {'id': doc.id, ...doc.data()}).toList();
+        // In‑memory sort to maintain order without requiring Firestore index
+        docs.sort((a, b) {
+          final t1 = a['created_at'] as Timestamp?;
+          final t2 = b['created_at'] as Timestamp?;
+          if (t1 == null || t2 == null) return 0;
+          return t2.compareTo(t1);
+        });
+        return docs;
+      });
+    } catch (e) {
+      // If the stream setup fails, rethrow to let callers handle it
+      rethrow;
+    }
+  }
+
+  /// Submits or updates a resident survey (deduplication via resident name + contact)
   Future<void> submitSurvey({
     required String uid,
     required String residentName,

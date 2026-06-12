@@ -37,8 +37,8 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
         final rawLocation = userData?.assignedZone ?? 'Location not set';
         final location = _mapZone(rawLocation);
         final phone = userData?.contact ?? 'Phone not set';
-        final skills = [userData?.skillType ?? 'General'];
-        final skillLevel = 'Verified';
+        final skills = (userData?.skills as List<dynamic>?)?.cast<String>() ?? [];
+        final skillLevel = userData?.skillLevel ?? 'Verified';
 
         return Container(
           color: Colors.transparent,
@@ -200,7 +200,27 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                                     ? [const Text('No skills listed')]
                                     : skills.map<Widget>((s) => _buildSoftChip(context, s)).toList(),
                               ),
-                              const SizedBox(height: 48),
+                              const SizedBox(height: 24),
+                              // Survey History Button
+                              SizedBox(
+                                width: double.infinity,
+                                height: 56,
+                                child: ElevatedButton.icon(
+                                  onPressed: () => context.push('/survey-history'),
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: Colors.green.shade50,
+                                    foregroundColor: Colors.green.shade700,
+                                    elevation: 0,
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(16),
+                                      side: BorderSide(color: Colors.green.shade100, width: 1),
+                                    ),
+                                  ),
+                                  icon: const Icon(Icons.history_rounded),
+                                  label: const Text('Survey History', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                                ),
+                              ),
+                              const SizedBox(height: 16),
                               // Logout Button
                               SizedBox(
                                 width: double.infinity,
