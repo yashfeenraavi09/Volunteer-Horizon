@@ -8,6 +8,7 @@ import '../services/database_service.dart';
 import '../core/providers.dart';
 import '../services/ai_service.dart';
 import '../models/report_model.dart';
+import '../services/offline_sync_service.dart';
 
 class ReportScreen extends ConsumerStatefulWidget {
   const ReportScreen({Key? key}) : super(key: key);
@@ -139,26 +140,34 @@ class _ReportScreenState extends ConsumerState<ReportScreen> {
       final String fullDescription = "${_titleController.text}\n\n${_descController.text}";
       final lat = _currentLocation?.latitude ?? 0.0;
       final lng = _currentLocation?.longitude ?? 0.0;
+      final isOnline = ref.read(offlineSyncProvider).connectionMode == ConnectionStateMode.online;
+
+      String submissionResult = '';
 
       if (_selectedType == TypeMode.disaster) {
-        // 1. AI DEDUPLICATION CHECK
-        final recentData = await ref.read(databaseServiceProvider).findRecentReports();
-        final recentReports = recentData.map((d) => Report.fromFirestore(_mockDoc(d))).toList();
-        
-        final duplicate = await _aiService.findDuplicate(fullDescription, lat, lng, recentReports);
-        
-        if (duplicate != null) {
-          bool? proceed = await _showDuplicateDialog(duplicate);
-          if (proceed != true) {
-            setState(() => _isSubmitting = false);
-            return;
+        if (isOnline) {
+          // 1. AI DEDUPLICATION CHECK (Only if online)
+          try {
+            final recentData = await ref.read(databaseServiceProvider).findRecentReports();
+            final recentReports = recentData.map((d) => Report.fromFirestore(_mockDoc(d))).toList();
+            
+            final duplicate = await _aiService.findDuplicate(fullDescription, lat, lng, recentReports);
+            
+            if (duplicate != null) {
+              bool? proceed = await _showDuplicateDialog(duplicate);
+              if (proceed != true) {
+                setState(() => _isSubmitting = false);
+                return;
+              }
+            }
+          } catch (e) {
+            debugPrint("Deduplication check failed: $e");
           }
         }
 
-        // 2. PROCEED WITH SUBMISSION
-        // Debug: print selected category
+        // 2. PROCEED WITH SUBMISSION (via offlineSyncProvider to handle offline/SMS/cache)
         debugPrint('Submitting report with category: \'${_disasterCategory}\'');
-        await ref.read(databaseServiceProvider).submitReport(
+        submissionResult = await ref.read(offlineSyncProvider.notifier).submitReport(
           uid: user.uid,
           category: _disasterCategory,
           description: fullDescription,
@@ -169,8 +178,8 @@ class _ReportScreenState extends ConsumerState<ReportScreen> {
           zoneLabel: profile.assignedZone,
         );
       } else {
-        // 3. SURVEY REDUNDANCY CHECK (Composite Key handled in service)
-        await ref.read(databaseServiceProvider).submitSurvey(
+        // 3. PROCEED WITH SURVEY SUBMISSION
+        submissionResult = await ref.read(offlineSyncProvider.notifier).submitSurvey(
           uid: user.uid,
           residentName: _headNameController.text,
           residentContact: _phoneController.text,
@@ -189,8 +198,26 @@ class _ReportScreenState extends ConsumerState<ReportScreen> {
       }
 
       if (mounted) {
+        String msg = '';
+        Color bg = Colors.green;
+        if (submissionResult == 'firebase') {
+          msg = 'Data synced successfully to NGO Dashboard!';
+        } else if (submissionResult == 'sms') {
+          msg = 'Offline: Report submitted via SMS to Gateway!';
+          bg = Colors.amber.shade800;
+        } else if (submissionResult == 'local') {
+          msg = 'Offline: Saved locally to Pending Sync Queue.';
+          bg = Colors.orange.shade800;
+        } else {
+          msg = 'Submitted successfully!';
+        }
+
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Data submitted successfully! Deduplication & Redundancy handled.')),
+          SnackBar(
+            content: Text(msg),
+            backgroundColor: bg,
+            duration: const Duration(seconds: 4),
+          ),
         );
         _resetForm();
       }
@@ -248,11 +275,66 @@ class _ReportScreenState extends ConsumerState<ReportScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final syncState = ref.watch(offlineSyncProvider);
+    final pendingCount = syncState.totalPending;
+
     return SingleChildScrollView(
       padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 16.0),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
+          if (pendingCount > 0) ...[
+            Container(
+              margin: const EdgeInsets.only(bottom: 16),
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.orange.shade50,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: Colors.orange.shade200),
+              ),
+              child: Row(
+                children: [
+                  Icon(Icons.sync_problem_rounded, color: Colors.orange.shade800),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          '$pendingCount Item(s) Pending Sync',
+                          style: TextStyle(fontWeight: FontWeight.bold, color: Colors.orange.shade900, fontSize: 13),
+                        ),
+                        Text(
+                          syncState.isSyncing
+                              ? 'Syncing now...'
+                              : 'Will sync automatically when internet returns.',
+                          style: TextStyle(color: Colors.orange.shade800, fontSize: 11),
+                        ),
+                      ],
+                    ),
+                  ),
+                  if (!syncState.isSyncing)
+                    TextButton.icon(
+                      onPressed: () {
+                        ref.read(offlineSyncProvider.notifier).triggerSync();
+                      },
+                      icon: const Icon(Icons.sync_rounded, size: 16),
+                      label: const Text('Sync Now', style: TextStyle(fontSize: 12)),
+                      style: TextButton.styleFrom(
+                        foregroundColor: Colors.orange.shade900,
+                        visualDensity: VisualDensity.compact,
+                      ),
+                    )
+                  else
+                    const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2, color: Colors.orange),
+                    ),
+                ],
+              ),
+            ),
+          ],
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             crossAxisAlignment: CrossAxisAlignment.start,

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../core/providers.dart';
+import '../services/offline_sync_service.dart';
 import 'home_screen.dart';
 import 'prediction_screen.dart';
 import 'report_screen.dart';
@@ -66,16 +67,23 @@ class _MainLayoutState extends ConsumerState<MainLayout> {
                         ),
                       ),
                     ),
-                    // Read-only auto-managed status badge (not user controllable)
-                    AnimatedSwitcher(
-                      duration: const Duration(milliseconds: 400),
-                      transitionBuilder: (child, animation) => ScaleTransition(
-                        scale: animation,
-                        child: FadeTransition(opacity: animation, child: child),
-                      ),
-                      child: isHighPriority
-                          ? _PriorityBadge(key: const ValueKey('high'))
-                          : _NormalBadge(key: const ValueKey('normal')),
+                    // Row containing connection status and priority status badges
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const _ConnectionStatusBadge(),
+                        const SizedBox(width: 8),
+                        AnimatedSwitcher(
+                          duration: const Duration(milliseconds: 400),
+                          transitionBuilder: (child, animation) => ScaleTransition(
+                            scale: animation,
+                            child: FadeTransition(opacity: animation, child: child),
+                          ),
+                          child: isHighPriority
+                              ? _PriorityBadge(key: const ValueKey('high'))
+                              : _NormalBadge(key: const ValueKey('normal')),
+                        ),
+                      ],
                     ),
                   ],
                 ),
@@ -242,6 +250,64 @@ class _NormalBadge extends StatelessWidget {
             'Normal',
             style: TextStyle(
               color: Color(0xFF2E7D32),
+              fontSize: 11,
+              fontWeight: FontWeight.w700,
+              letterSpacing: 0.5,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Connection Status Badge - displays the active connection mode:
+// Online, Offline (SMS Mode), or Offline (Queued).
+// ---------------------------------------------------------------------------
+class _ConnectionStatusBadge extends ConsumerWidget {
+  const _ConnectionStatusBadge({Key? key}) : super(key: key);
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final syncState = ref.watch(offlineSyncProvider);
+    
+    final Color bgColor;
+    final Color textColor;
+    final String label;
+    final IconData icon;
+
+    switch (syncState.connectionMode) {
+      case ConnectionStateMode.online:
+        bgColor = const Color(0xFFE8F5E9);
+        textColor = const Color(0xFF2E7D32);
+        label = 'Online';
+        icon = Icons.wifi_rounded;
+        break;
+      case ConnectionStateMode.offline:
+        bgColor = const Color(0xFFFFF9C4);
+        textColor = const Color(0xFFF57F17);
+        label = 'Offline';
+        icon = Icons.wifi_off_rounded;
+        break;
+    }
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      decoration: BoxDecoration(
+        color: bgColor,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: textColor.withOpacity(0.3)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, color: textColor, size: 14),
+          const SizedBox(width: 5),
+          Text(
+            label,
+            style: TextStyle(
+              color: textColor,
               fontSize: 11,
               fontWeight: FontWeight.w700,
               letterSpacing: 0.5,

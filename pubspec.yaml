@@ -42,6 +42,8 @@ dependencies:
   flutter_animate: ^4.5.2
   font_awesome_flutter: ^11.0.0
   google_maps_flutter: ^2.10.0
+  google_maps_flutter_android: ^2.12.1
+  google_maps_flutter_platform_interface: ^2.8.0
   fl_chart: ^0.70.0
   firebase_core: ^4.7.0
   firebase_auth: ^6.4.0
@@ -49,6 +51,8 @@ dependencies:
   google_generative_ai: ^0.4.0
   http: ^1.2.2
   collection : ^1.18.0
+  connectivity_plus: ^6.0.3
+  shared_preferences: ^2.2.3
 
 dev_dependencies:
   flutter_test:

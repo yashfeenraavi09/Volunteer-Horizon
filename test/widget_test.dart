@@ -15,5 +15,8 @@ void main() {
 
     // Verify that the Volunteer App starts and shows the onboarding or home screen.
     expect(find.byType(MaterialApp), findsOneWidget);
+
+    // Settle pending animation timers (e.g. from flutter_animate)
+    await tester.pump(const Duration(seconds: 1));
   });
 }

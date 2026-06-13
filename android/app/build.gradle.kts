@@ -21,7 +21,17 @@ android {
     if (localPropertiesFile.exists()) {
         localPropertiesFile.inputStream().use { localProperties.load(it) }
     }
-    val mapsKey = localProperties.getProperty("MAPS_KEY") ?: ""
+
+    // Load from root .env file
+    val envProperties = Properties()
+    val envFile = rootProject.file("../.env")
+    if (envFile.exists()) {
+        envFile.inputStream().use { envProperties.load(it) }
+    }
+
+    val mapsKey = envProperties.getProperty("MAPS_KEY")
+        ?: localProperties.getProperty("MAPS_KEY")
+        ?: ""
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
