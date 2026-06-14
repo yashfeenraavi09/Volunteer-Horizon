@@ -11,7 +11,7 @@ class Assignment {
   final String? recommendedResource;
   final String? responseTimeline;
   final String? deploymentStatus;
-  final String? coordinationExplanation;
+  final String? missionDescription;
   final String locationName;
   final double latitude;
   final double longitude;
@@ -35,7 +35,7 @@ class Assignment {
     this.recommendedResource,
     this.responseTimeline,
     this.deploymentStatus,
-    this.coordinationExplanation,
+    this.missionDescription,
     required this.locationName,
     required this.latitude,
     required this.longitude,
@@ -60,7 +60,7 @@ class Assignment {
       recommendedResource: data['recommended_resource'],
       responseTimeline: data['response_timeline'],
       deploymentStatus: data['deployment_status'],
-      coordinationExplanation: data['coordination_explanation'],
+      missionDescription: data['mission_description'],
       locationName: data['location_name'] ?? 'Unknown Location',
       latitude: (data['latitude'] ?? 0.0).toDouble(),
       longitude: (data['longitude'] ?? 0.0).toDouble(),
@@ -84,7 +84,7 @@ class Assignment {
       'recommended_resource': recommendedResource,
       'response_timeline': responseTimeline,
       'deployment_status': deploymentStatus,
-      'coordination_explanation': coordinationExplanation,
+      'mission_description': missionDescription,
       'location_name': locationName,
       'latitude': latitude,
       'longitude': longitude,

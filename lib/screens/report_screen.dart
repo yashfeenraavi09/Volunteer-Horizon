@@ -1,8 +1,12 @@
+import 'dart:convert';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:geocoding/geocoding.dart';
+import 'package:http/http.dart' as http;
+import 'package:image_picker/image_picker.dart';
 import '../services/auth_service.dart';
 import '../services/database_service.dart';
 import '../core/providers.dart';
@@ -22,8 +26,8 @@ enum TypeMode { disaster, survey }
 
 class _ReportScreenState extends ConsumerState<ReportScreen> {
   final _aiService = AiService();
+  final _imagePicker = ImagePicker();
   bool _isSubmitting = false;
-  // ... rest of state ...
   ReportMode _currentMode = ReportMode.form;
   TypeMode _selectedType = TypeMode.disaster;
 
@@ -50,6 +54,11 @@ class _ReportScreenState extends ConsumerState<ReportScreen> {
   bool _hasDisability = false;
   bool _isImmunized = true;
 
+  // AI Image Processing State
+  File? _selectedImage;
+  bool _isProcessingImage = false;
+  bool _aiExtractionDone = false;
+
   @override
   void dispose() {
     _titleController.dispose();
@@ -59,6 +68,218 @@ class _ReportScreenState extends ConsumerState<ReportScreen> {
     _totalMembersController.dispose();
     _childrenCountController.dispose();
     super.dispose();
+  }
+
+  // ---------------------------------------------------------------------------
+  // AI Image Processing
+  // ---------------------------------------------------------------------------
+
+  void _showImageSourcePicker() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (_) => Container(
+        margin: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(24),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const SizedBox(height: 8),
+            Container(
+              width: 40, height: 4,
+              decoration: BoxDecoration(
+                color: Colors.grey.shade300,
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+            const SizedBox(height: 20),
+            const Text(
+              'Select Image Source',
+              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'AI will extract incident details automatically',
+              style: TextStyle(color: Colors.grey.shade500, fontSize: 13),
+            ),
+            const SizedBox(height: 24),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+              children: [
+                _buildSourceOption(
+                  icon: Icons.camera_alt_rounded,
+                  label: 'Camera',
+                  color: Theme.of(context).colorScheme.primary,
+                  onTap: () {
+                    Navigator.pop(context);
+                    _pickImage(ImageSource.camera);
+                  },
+                ),
+                _buildSourceOption(
+                  icon: Icons.photo_library_rounded,
+                  label: 'Gallery',
+                  color: Colors.purple,
+                  onTap: () {
+                    Navigator.pop(context);
+                    _pickImage(ImageSource.gallery);
+                  },
+                ),
+              ],
+            ),
+            const SizedBox(height: 32),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSourceOption({
+    required IconData icon,
+    required String label,
+    required Color color,
+    required VoidCallback onTap,
+  }) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Column(
+        children: [
+          Container(
+            width: 72, height: 72,
+            decoration: BoxDecoration(
+              color: color.withValues(alpha: 0.1),
+              shape: BoxShape.circle,
+            ),
+            child: Icon(icon, color: color, size: 32),
+          ),
+          const SizedBox(height: 10),
+          Text(label, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _pickImage(ImageSource source) async {
+    try {
+      final picked = await _imagePicker.pickImage(
+        source: source,
+        imageQuality: 85,
+        maxWidth: 1920,
+      );
+      if (picked == null) return;
+      final file = File(picked.path);
+      setState(() {
+        _selectedImage = file;
+        _aiExtractionDone = false;
+      });
+      // Auto-start AI processing
+      await _processImageWithAI(file);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Could not pick image: $e'), backgroundColor: Colors.red),
+        );
+      }
+    }
+  }
+
+  Future<void> _processImageWithAI(File image) async {
+    setState(() => _isProcessingImage = true);
+    try {
+      final uri = Uri.parse('https://volunteer-ai-api-420564015250.asia-south1.run.app/process/');
+      final request = http.MultipartRequest('POST', uri);
+      request.files.add(await http.MultipartFile.fromPath('file', image.path));
+
+      final streamed = await request.send().timeout(const Duration(seconds: 30));
+      final body = await streamed.stream.bytesToString();
+      final json = jsonDecode(body) as Map<String, dynamic>;
+
+      if (json['status'] == 'success') {
+        final data = json['data'] as Map<String, dynamic>;
+        final text = (data['text'] as String? ?? '').trim();
+        final lat = (data['latitude'] as num?)?.toDouble() ?? 0.0;
+        final lng = (data['longitude'] as num?)?.toDouble() ?? 0.0;
+        final locationName = data['location_name'] as String? ?? '';
+
+        setState(() {
+          // Populate description — split title from body on first newline
+          final lines = text.split('\n').where((l) => l.trim().isNotEmpty).toList();
+          _titleController.text = lines.isNotEmpty ? lines.first.trim() : 'AI Extracted Report';
+          _descController.text = lines.length > 1 ? lines.skip(1).join('\n').trim() : text;
+
+          // Populate location
+          if (lat != 0.0 && lng != 0.0) {
+            _currentLocation = GeoPoint(lat, lng);
+          }
+          if (locationName.isNotEmpty) _capturedAddress = locationName;
+
+          // Infer category and severity from extracted text
+          _disasterCategory = _inferCategory(text);
+          _severity = _inferSeverity(text);
+
+          // Switch to form mode so user can review extracted fields
+          _selectedType = TypeMode.disaster;
+          _currentMode = ReportMode.form;
+          _aiExtractionDone = true;
+        });
+
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Row(
+                children: [
+                  const Icon(Icons.auto_awesome, color: Colors.white, size: 18),
+                  const SizedBox(width: 8),
+                  const Text('AI extracted report details. Please review before submitting.'),
+                ],
+              ),
+              backgroundColor: Colors.green.shade700,
+              duration: const Duration(seconds: 4),
+            ),
+          );
+        }
+      } else {
+        throw Exception('API returned non-success status: ${json['status']}');
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('AI processing failed: $e'),
+            backgroundColor: Colors.red,
+            action: SnackBarAction(
+              label: 'Retry',
+              textColor: Colors.white,
+              onPressed: () => _processImageWithAI(image),
+            ),
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isProcessingImage = false);
+    }
+  }
+
+  /// Infers disaster category from extracted text using keyword matching
+  String _inferCategory(String text) {
+    final lower = text.toLowerCase();
+    if (lower.contains('flood') || lower.contains('water') || lower.contains('rain') || lower.contains('submerged')) return 'Flood';
+    if (lower.contains('fire') || lower.contains('burn') || lower.contains('blaze')) return 'Fire';
+    if (lower.contains('medical') || lower.contains('injur') || lower.contains('hospital') || lower.contains('health')) return 'Medical';
+    if (lower.contains('road') || lower.contains('bridge') || lower.contains('building') || lower.contains('infrastructure')) return 'Infrastructure';
+    if (lower.contains('food') || lower.contains('shortage') || lower.contains('supply') || lower.contains('relief')) return 'Shortage';
+    return 'Medical'; // safe default
+  }
+
+  /// Infers severity from extracted text using keyword matching
+  String _inferSeverity(String text) {
+    final lower = text.toLowerCase();
+    if (lower.contains('critical') || lower.contains('asap') || lower.contains('urgent') || lower.contains('emergency') || lower.contains('immediate')) return 'Critical';
+    if (lower.contains('high') || lower.contains('severe') || lower.contains('major') || lower.contains('500') || lower.contains('1000')) return 'High';
+    if (lower.contains('low') || lower.contains('minor') || lower.contains('small')) return 'Low';
+    return 'Medium';
   }
 
   Future<void> _getCurrentLocation() async {
@@ -555,25 +776,20 @@ class _ReportScreenState extends ConsumerState<ReportScreen> {
   }
 
   Widget _buildPictureSection(BuildContext context) {
-    return Container(
-      height: 250,
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(24),
-        border: Border.all(color: Colors.grey.shade300, style: BorderStyle.solid),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.05),
-            blurRadius: 15,
-            offset: const Offset(0, 5),
+    // State 1: No image selected yet
+    if (_selectedImage == null) {
+      return GestureDetector(
+        onTap: _showImageSourcePicker,
+        child: Container(
+          height: 250,
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(24),
+            border: Border.all(color: Colors.grey.shade300),
+            boxShadow: [
+              BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 15, offset: const Offset(0, 5)),
+            ],
           ),
-        ],
-      ),
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          borderRadius: BorderRadius.circular(24),
-          onTap: () {},
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
@@ -586,19 +802,99 @@ class _ReportScreenState extends ConsumerState<ReportScreen> {
                 child: Icon(Icons.add_a_photo, size: 48, color: Theme.of(context).colorScheme.primary),
               ),
               const SizedBox(height: 20),
-              const Text(
-                'Capture or Upload Picture',
-                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-              ),
+              const Text('Capture or Upload Picture', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
               const SizedBox(height: 8),
-              Text(
-                'AI will extract details from image',
-                style: TextStyle(color: Colors.grey.shade500, fontSize: 13),
-              ),
+              Text('AI will extract details from image', style: TextStyle(color: Colors.grey.shade500, fontSize: 13)),
             ],
           ),
         ),
-      ),
+      );
+    }
+
+    // State 2: Image selected — show preview + processing overlay
+    return Column(
+      children: [
+        Stack(
+          children: [
+            // Image preview
+            ClipRRect(
+              borderRadius: BorderRadius.circular(24),
+              child: Image.file(
+                _selectedImage!,
+                height: 250,
+                width: double.infinity,
+                fit: BoxFit.cover,
+              ),
+            ),
+            // Processing overlay
+            if (_isProcessingImage)
+              Positioned.fill(
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(24),
+                  child: Container(
+                    color: Colors.black.withValues(alpha: 0.6),
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        const CircularProgressIndicator(color: Colors.white, strokeWidth: 3),
+                        const SizedBox(height: 16),
+                        const Text(
+                          'AI Analyzing Image...',
+                          style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 15),
+                        ),
+                        const SizedBox(height: 6),
+                        Text(
+                          'Extracting location, category & description',
+                          style: TextStyle(color: Colors.white.withValues(alpha: 0.8), fontSize: 12),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            // Change image button (top-right)
+            if (!_isProcessingImage)
+              Positioned(
+                top: 10, right: 10,
+                child: GestureDetector(
+                  onTap: _showImageSourcePicker,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: Colors.black.withValues(alpha: 0.55),
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: const Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.refresh_rounded, color: Colors.white, size: 14),
+                        SizedBox(width: 4),
+                        Text('Change', style: TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w600)),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+          ],
+        ),
+        // Retry button shown only if AI done — switch to form automatically, but allow retry
+        if (!_isProcessingImage && _selectedImage != null) ...
+          [
+            const SizedBox(height: 12),
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                onPressed: () => _processImageWithAI(_selectedImage!),
+                icon: const Icon(Icons.auto_awesome, size: 18),
+                label: const Text('Re-analyze with AI'),
+                style: OutlinedButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                ),
+              ),
+            ),
+          ],
+      ],
     );
   }
 

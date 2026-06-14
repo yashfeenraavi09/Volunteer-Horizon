@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/assignment_model.dart';
-import '../models/report_model.dart';
 import '../services/auth_service.dart';
 import '../services/database_service.dart';
 import '../core/providers.dart';
@@ -88,21 +87,18 @@ class _AssignmentDetailScreenState extends ConsumerState<AssignmentDetailScreen>
 
   @override
   Widget build(BuildContext context) {
-    // Watch for real-time updates
+    // Watch for real-time updates on the assignment document only.
+    // mission_description is already on the assignment — no need to stream reports.
     final assignmentAsync = ref.watch(singleAssignmentProvider(widget.assignment.id));
 
     return assignmentAsync.when(
-      data: (a) {
-        final actualA = a ?? widget.assignment;
-        final reportAsync = ref.watch(reportStreamProvider(actualA.reportId));
-        return _buildScaffold(actualA, reportAsync: reportAsync);
-      },
+      data: (a) => _buildScaffold(a ?? widget.assignment),
       loading: () => _buildScaffold(widget.assignment, isLoading: true),
       error: (err, _) => _buildScaffold(widget.assignment, error: err.toString()),
     );
   }
 
-  Widget _buildScaffold(Assignment a, {AsyncValue<Report?>? reportAsync, bool isLoading = false, String? error}) {
+  Widget _buildScaffold(Assignment a, {bool isLoading = false, String? error}) {
     final isPending = a.assignmentStatus == 'pending';
     final isAccepted = a.assignmentStatus == 'accepted';
     final isEnRoute = a.assignmentStatus == 'en_route';
@@ -163,23 +159,10 @@ class _AssignmentDetailScreenState extends ConsumerState<AssignmentDetailScreen>
                     // Description Section
                     _buildSectionHeader('Mission Description'),
                     const SizedBox(height: 12),
-                    if (reportAsync != null)
-                      reportAsync.when(
-                        data: (r) => Text(
-                          r?.text ?? 'No additional description provided for this mission.',
-                          style: TextStyle(color: Colors.grey.shade700, height: 1.5, fontSize: 15),
-                        ),
-                        loading: () => const Text('Fetching field observations...', style: TextStyle(color: Colors.grey)),
-                        error: (_, __) => Text(
-                          a.coordinationExplanation ?? 'No description available.',
-                          style: TextStyle(color: Colors.grey.shade700, height: 1.5, fontSize: 15),
-                        ),
-                      )
-                    else
-                      Text(
-                        a.coordinationExplanation ?? 'No description available.',
-                        style: TextStyle(color: Colors.grey.shade700, height: 1.5, fontSize: 15),
-                      ),
+                    Text(
+                      a.missionDescription ?? 'No description available.',
+                      style: TextStyle(color: Colors.grey.shade700, height: 1.5, fontSize: 15),
+                    ),
                     
                     const SizedBox(height: 32),
                     _buildSectionHeader('Mission Type'),

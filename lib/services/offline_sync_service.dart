@@ -70,7 +70,7 @@ class OfflineSyncNotifier extends Notifier<SyncState> {
 
   Future<void> _init() async {
     if (_initialized) return;
-    if (Platform.environment.containsKey('FLUTTER_TEST')) {
+    if (!kIsWeb && Platform.environment.containsKey('FLUTTER_TEST')) {
       _initialized = true;
       return;
     }
@@ -110,7 +110,7 @@ class OfflineSyncNotifier extends Notifier<SyncState> {
   // Helper to quickly evaluate network presence. The detailed internet check is now handled in _handleConnectivityChange.
   Future<bool> _isInternetAvailable() async {
     // Retained for backward compatibility; returns true if any network is available.
-    if (Platform.environment.containsKey('FLUTTER_TEST')) return true;
+    if (!kIsWeb && Platform.environment.containsKey('FLUTTER_TEST')) return true;
     return _hasNetworkConnection(await _connectivity.checkConnectivity());
   }
 
